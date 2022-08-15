@@ -327,7 +327,6 @@ Resources:
                       - DNSName
                       
                       
-                      
     #aws lambda
     LambdaFunction:
         Type: AWS::Lambda::Function
@@ -347,6 +346,24 @@ Resources:
           Tags: 
             - Key: Name
               Value: aws-lambda-ssm
+              
+    # aws ssm document
+    SSMDocument:
+        Type: AWS::SSM::Document
+        Properties: 
+          Attachments: 
+            - AttachmentsSource
+          Content: Json
+          DocumentFormat: String
+          DocumentType: String
+          Name: String
+          Requires: 
+            - DocumentRequires
+          Tags: 
+            - Tag
+          TargetType: String
+          UpdateMethod: String
+          VersionName: String
 
             
     # eventbridge rule
