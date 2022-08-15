@@ -47,13 +47,39 @@ Parameters:
      Description: the name of the autoscaling lifecycle hook
      Default: AutoScalingHook
      
+ NotificationEmail:
+      Type: String
+      Description: The email address that receives SNS notifications
+      
+ PublishToTopic:
+    Type: String
+    Default: False
+    Description: Indicates whether notifications are published to SNS.
+    AllowedValues:
+      - True
+      - False
+
+     
 
 Mappings:
   RegionMap:
     eu-west-3:
       AMI:  ami-02d0b1ffa5f16402d
       
-      
+ 
+Conditions:
+  IsMultiRegion: !Equals
+    - !Ref MultiRegion
+    - True
+  Publish: !Equals
+    - !Ref PublishToTopic
+    - True
+  CreateSubscription: !And
+    - !Condition Publish
+    - !Not
+      - !Equals
+        - !Ref NotificationEmail
+        - ''     
 
 Resources:
 # launch template 
@@ -173,7 +199,7 @@ Resources:
 
         MaxSize: '3'
         MinSize: '1'
-        DesiredCapacity: '2'
+        DesiredCapacity: '1'
         TargetGroupARNs: 
           - !Ref TargetGroup
         VPCZoneIdentifier: !Ref Subnets
@@ -337,7 +363,6 @@ Resources:
         Type: AWS::Lambda::Function
         Properties: 
           Code: src/index.py
-          CodeSigningConfigArn: String
           Environment: 
             Variables:
                DOCUMENT_NAME: Document
@@ -351,6 +376,21 @@ Resources:
           Tags: 
             - Key: Name
               Value: aws-lambda-ssm
+              
+    # sns topic
+    SNSTopic:
+      Condition: Publish
+      Type: AWS::SNS::Topic
+  
+    # sns subscription
+    SNSSubscription:
+      Condition: CreateSubscription
+      Type: AWS::SNS::Subscription
+      Properties:
+        Endpoint: !Ref NotificationEmail
+        Protocol: email
+        TopicArn: !Ref SNSTopic
+
               
     # aws ssm document
     SSMDocument:
@@ -370,29 +410,17 @@ Resources:
                     {
                       "id": "0.aws:runShellScript",
                       "runCommand": [
-                        "",
                         "ASGNAME='${AutoScalingGroup}'",
                         "LIFECYCLEHOOKNAME='${LifecycleHookName}'",
                         "BACKUPDIRECTORY='/var/log'",
-                        "S3BUCKET='${Bucket}'",
-                        "SNSTARGET='${Topic}'",
+                        "SNSTARGET='${SNSTopic}'",
                         "INSTANCEID=$(curl http://169.254.169.254/latest/meta-data/instance-id)",
                         "REGION=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)",
-                        "REGION=${!REGION::-1}",
+                        "REGION=${REGION::-1}",
                         "HOOKRESULT='CONTINUE'",
-                        "MESSAGE=''",
-                        "",
-                        "tar -cf /tmp/${!INSTANCEID}.tar $BACKUPDIRECTORY &> /tmp/backup",
-                        "if [ $? -ne 0 ]",
-                        "then",
-                        "   MESSAGE=$(cat /tmp/backup)",
-                        "else",
-                        "   aws s3 cp /tmp/${!INSTANCEID}.tar s3://${!S3BUCKET}/${!INSTANCEID}/ &> /tmp/backup",
-                        "       MESSAGE=$(cat /tmp/backup)",
-                        "fi",
-                        "",
-                        "aws sns publish --subject 'ASG Backup' --message \"$MESSAGE\"  --target-arn ${!SNSTARGET} --region ${!REGION}",
-                        "aws autoscaling complete-lifecycle-action --lifecycle-hook-name ${!LIFECYCLEHOOKNAME} --auto-scaling-group-name ${!ASGNAME} --lifecycle-action-result ${!HOOKRESULT} --instance-id ${!INSTANCEID}  --region ${!REGION}"
+                        "MESSAGE='Hello MyName is abdelali'",
+                        "aws sns publish --subject 'ASG Backup' --message \"$MESSAGE\"  --target-arn ${SNSTARGET} --region ${REGION}",
+                        "aws autoscaling complete-lifecycle-action --lifecycle-hook-name ${LIFECYCLEHOOKNAME} --auto-scaling-group-name ${ASGNAME} --lifecycle-action-result ${HOOKRESULT} --instance-id ${INSTANCEID}  --region ${REGION}"
                       ]
                     }
                   ]
