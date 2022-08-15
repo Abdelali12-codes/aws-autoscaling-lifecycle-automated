@@ -38,6 +38,10 @@ Parameters:
      Description: The Name Parameter
      Default: Abdelali
      
+ AutoScalingGroup:
+     Type: String
+     Description: The name of the autoscaling group
+     
  LifecycleHookName:
      Type: String
      Description: the name of the autoscaling lifecycle hook
@@ -160,6 +164,7 @@ Resources:
         ResourceSignal:
           Timeout: PT15M
       Properties:
+        AutoScalingGroupName: !Ref AutoScalingGroup
         LaunchTemplate:
           LaunchTemplateId: !Ref myLaunchTemplate
           Version: !GetAtt 
@@ -354,16 +359,46 @@ Resources:
           Attachments: 
             - AttachmentsSource
           Content: Json
-          DocumentFormat: String
-          DocumentType: String
-          Name: String
-          Requires: 
-            - DocumentRequires
-          Tags: 
-            - Tag
-          TargetType: String
-          UpdateMethod: String
-          VersionName: String
+          Content: !Sub |
+            {
+              "schemaVersion": "1.2",
+              "description": "Backup logs to S3",
+              "parameters": {},
+              "runtimeConfig": {
+                "aws:runShellScript": {
+                  "properties": [
+                    {
+                      "id": "0.aws:runShellScript",
+                      "runCommand": [
+                        "",
+                        "ASGNAME='${AutoScalingGroup}'",
+                        "LIFECYCLEHOOKNAME='${LifecycleHookName}'",
+                        "BACKUPDIRECTORY='/var/log'",
+                        "S3BUCKET='${Bucket}'",
+                        "SNSTARGET='${Topic}'",
+                        "INSTANCEID=$(curl http://169.254.169.254/latest/meta-data/instance-id)",
+                        "REGION=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)",
+                        "REGION=${!REGION::-1}",
+                        "HOOKRESULT='CONTINUE'",
+                        "MESSAGE=''",
+                        "",
+                        "tar -cf /tmp/${!INSTANCEID}.tar $BACKUPDIRECTORY &> /tmp/backup",
+                        "if [ $? -ne 0 ]",
+                        "then",
+                        "   MESSAGE=$(cat /tmp/backup)",
+                        "else",
+                        "   aws s3 cp /tmp/${!INSTANCEID}.tar s3://${!S3BUCKET}/${!INSTANCEID}/ &> /tmp/backup",
+                        "       MESSAGE=$(cat /tmp/backup)",
+                        "fi",
+                        "",
+                        "aws sns publish --subject 'ASG Backup' --message \"$MESSAGE\"  --target-arn ${!SNSTARGET} --region ${!REGION}",
+                        "aws autoscaling complete-lifecycle-action --lifecycle-hook-name ${!LIFECYCLEHOOKNAME} --auto-scaling-group-name ${!ASGNAME} --lifecycle-action-result ${!HOOKRESULT} --instance-id ${!INSTANCEID}  --region ${!REGION}"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
 
             
     # eventbridge rule
