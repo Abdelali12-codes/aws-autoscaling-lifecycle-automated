@@ -365,7 +365,9 @@ Resources:
           Code: src/index.py
           Environment: 
             Variables:
-               DOCUMENT_NAME: Document
+               DOCUMENT_NAME: !Ref SSMDocument
+               LifecycleHookName: !Ref LifecycleHookName
+               AutoScalingGroupName: !Ref AutoScalingGroup
                Name: abdelali
           FunctionName: aws-lambda-ssm
           Handler: index.handler
