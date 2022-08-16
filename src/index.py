@@ -132,7 +132,7 @@ def abandon_lifecycle(life_cycle_hook, auto_scaling_group, instance_id):
         
 
 
-def lambda_handler(event, context):
+def handler(event, context):
     try:
         logger.info(json.dumps(event))
         message = event['detail']
