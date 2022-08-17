@@ -127,3 +127,9 @@ mainSteps:
 ## to mount efs to an aws lambda
 
 * PYTHONPATH	/mnt/efs
+
+
+
+## the cloudformation template
+![template1-designer (3)](https://user-images.githubusercontent.com/67081878/185195445-23485e14-5378-4670-a901-04810646639e.png)
+
