@@ -1,6 +1,21 @@
 # aws-autoscaling-lifecycle-automated
 
 
+## lambda code 
+
+* create a s3 bucket
+```
+aws s3 mb s3://name-of-bucket
+```
+* zip the code
+```
+zip application.zip -r index.py
+```
+* copy your ziped code in it 
+```
+aws s3 cp application.zip s3://name-of-bucket
+```
+
 ## SSM document schema
 
 * version 1.2
@@ -109,3 +124,6 @@ mainSteps:
   --template-body file:///home/testuser/mytemplate.json \
   --parameters ParameterKey=Parm1,ParameterValue=test1 ParameterKey=Parm2,ParameterValue=test2
 ```
+## to mount efs to an aws lambda
+
+* PYTHONPATH	/mnt/efs

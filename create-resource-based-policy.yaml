@@ -1,0 +1,88 @@
+Resources: 
+    LambdaExecutionRole:
+        Type: AWS::IAM::Role
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                - lambda.amazonaws.com
+              Action:
+              - sts:AssumeRole
+          Path: "/"
+          Policies:
+          - PolicyName: root
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+              - Effect: Allow
+                Action:
+                - "logs:*"
+                - "cloudwatch:*"
+                Resource: '*'
+
+    Ceateresourcebase: 
+        Type: "AWS::Lambda::Function"
+        Properties: 
+          Handler: "index.handler"
+          Role: 
+            Fn::GetAtt: 
+              - "LambdaExecutionRole"
+              - "Arn"
+          Runtime: "python3.7"
+          # we give the function a large timeout 
+          # so we can wait for the bucket to be empty
+          Timeout: 600
+          Code: 
+            ZipFile: |
+              #!/usr/bin/env python
+              import json
+              import boto3
+              from botocore.vendored import requests
+              
+              cloudwatch = boto3.client('logs')
+              
+              def handler(event, context):
+                  print(event)
+                  try:
+                      if 'policy' in event['ResourceProperties']:
+                      
+                          policydoc = event['ResourceProperties']['policy']
+                          policyname = event['ResourceProperties']['policyname']
+                          
+                          if event['RequestType'] == 'Create':
+                                response = cloudwatch.put_resource_policy(
+                                    policyName = policyname,
+                                    policyDocument = policydoc
+                                )
+                                
+                                
+                          elif event['RequestType'] == 'Delete':
+                                response = cloudwatch.delete_resource_policy(
+                                                policyName = policyname
+                                            )
+                                
+                          sendResponseCfn(event, context, "SUCCESS")
+                          
+                  except Exception as e:
+                  
+                      print(e)
+                      sendResponseCfn(event, context, "FAILED")
+                      
+              def sendResponseCfn(event, context, responseStatus):
+                  response_body = {'Status': responseStatus,
+                                  'Reason': 'Log stream name: ' + context.log_stream_name,
+                                  'PhysicalResourceId': context.log_stream_name,
+                                  'StackId': event['StackId'],
+                                  'RequestId': event['RequestId'],
+                                  'LogicalResourceId': event['LogicalResourceId'],
+                                  'Data': json.loads("{}")}
+                  requests.put(event['ResponseURL'], data=json.dumps(response_body))
+Outputs:
+  StackSSHSecurityGroup:
+    Description: The ARN of the Lambda function that empties an S3 bucket
+    Value: !GetAtt Ceateresourcebase.Arn
+    Export:
+      Name: createcloudwatchpolicylambda

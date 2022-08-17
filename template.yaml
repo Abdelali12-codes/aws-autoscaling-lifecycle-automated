@@ -38,20 +38,20 @@ Parameters:
      Description: The Name Parameter
      Default: Abdelali
      
- AutoScalingGroup:
+  AutoScalingGroup:
      Type: String
      Description: The name of the autoscaling group
      
- LifecycleHookName:
+  LifecycleHookName:
      Type: String
      Description: the name of the autoscaling lifecycle hook
      Default: AutoScalingHook
      
- NotificationEmail:
+  NotificationEmail:
       Type: String
       Description: The email address that receives SNS notifications
       
- PublishToTopic:
+  PublishToTopic:
     Type: String
     Default: False
     Description: Indicates whether notifications are published to SNS.
@@ -68,9 +68,6 @@ Mappings:
       
  
 Conditions:
-  IsMultiRegion: !Equals
-    - !Ref MultiRegion
-    - True
   Publish: !Equals
     - !Ref PublishToTopic
     - True
@@ -362,7 +359,10 @@ Resources:
     LambdaFunction:
         Type: AWS::Lambda::Function
         Properties: 
-          Code: src/index.py
+          Code: 
+              S3Bucket: aws-s3-bucket-lambda-lifecyclehook
+              S3Key: application.zip
+
           Environment: 
             Variables:
                DOCUMENT_NAME: !Ref SSMDocument
@@ -375,10 +375,88 @@ Resources:
                 - LambdaRole
                 - Arn
           Runtime: python3.8
+          Timeout: 600
           Tags: 
             - Key: Name
               Value: aws-lambda-ssm
               
+    # allow            
+    permissionForLamndaInvoke:
+     Type: AWS::Lambda::Permission
+     Properties:
+       FunctionName: !Ref LambdaFunction
+       Action: lambda:InvokeFunction
+       Principal: 'events.amazonaws.com'
+       SourceArn: !GetAtt
+                  - AmazonCloudWatchEventRule
+                  - Arn
+                  
+    # aws sqs 
+    MyQueue: 
+      Type: AWS::SQS::Queue
+      Properties: 
+        QueueName: "SampleQueue"
+        
+    # sqs policy
+     
+    SampleSQSPolicy: 
+      Type: AWS::SQS::QueuePolicy
+      Properties: 
+        Queues: 
+          - !Ref MyQueue
+        PolicyDocument: 
+          Statement: 
+            - 
+              Action: 
+                - "SQS:SendMessage" 
+                - "SQS:ReceiveMessage"
+              Effect: "Allow"
+              Resource: !GetAtt 
+                        - MyQueue
+                        - Arn
+              Principal:  
+                Service: 
+                  - 'events.amazonaws.com'     
+          
+    
+    # alarm sns topic
+    AlarmTopic: 
+      Type: AWS::SNS::Topic
+  
+    # alarm sns topic subscription
+    
+    # sns subscription
+    AlarmSubscription:
+      Condition: CreateSubscription
+      Type: AWS::SNS::Subscription
+      Properties:
+        Endpoint: !Ref NotificationEmail
+        Protocol: email
+        TopicArn: !Ref AlarmTopic
+          
+    # queue alarm
+    QueueDepthAlarm: 
+      Type: AWS::CloudWatch::Alarm
+      Properties: 
+        AlarmDescription: "Alarm if queue depth increases to more than 10 messages"
+        Namespace: "AWS/SQS"
+        MetricName: "ApproximateNumberOfMessagesVisible"
+        Dimensions: 
+          - 
+            Name: "QueueName"
+            Value: !GetAtt
+                    - MyQueue
+                    - QueueName
+        Statistic: "Sum"
+        Period: "300"
+        EvaluationPeriods: "1"
+        Threshold: "10"
+        ComparisonOperator: "GreaterThanThreshold"
+        AlarmActions: 
+          -  !Ref AlarmTopic
+        InsufficientDataActions: 
+          - !Ref AlarmTopic    
+          
     # sns topic
     SNSTopic:
       Condition: Publish
@@ -398,9 +476,6 @@ Resources:
     SSMDocument:
         Type: AWS::SSM::Document
         Properties: 
-          Attachments: 
-            - AttachmentsSource
-          Content: Json
           Content: !Sub |
             {
               "schemaVersion": "1.2",
@@ -412,17 +487,17 @@ Resources:
                     {
                       "id": "0.aws:runShellScript",
                       "runCommand": [
-                        "ASGNAME='${AutoScalingGroup}'",
-                        "LIFECYCLEHOOKNAME='${LifecycleHookName}'",
+                        "ASGNAME='${!AutoScalingGroup}'",
+                        "LIFECYCLEHOOKNAME='${!LifecycleHookName}'",
                         "BACKUPDIRECTORY='/var/log'",
-                        "SNSTARGET='${SNSTopic}'",
+                        "SNSTARGET='${!SNSTopic}'",
                         "INSTANCEID=$(curl http://169.254.169.254/latest/meta-data/instance-id)",
                         "REGION=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)",
-                        "REGION=${REGION::-1}",
+                        "REGION=${!REGION::-1}",
                         "HOOKRESULT='CONTINUE'",
                         "MESSAGE='Hello MyName is abdelali'",
-                        "aws sns publish --subject 'ASG Backup' --message \"$MESSAGE\"  --target-arn ${SNSTARGET} --region ${REGION}",
-                        "aws autoscaling complete-lifecycle-action --lifecycle-hook-name ${LIFECYCLEHOOKNAME} --auto-scaling-group-name ${ASGNAME} --lifecycle-action-result ${HOOKRESULT} --instance-id ${INSTANCEID}  --region ${REGION}"
+                        "aws sns publish --subject 'ASG Backup' --message ${!MESSAGE}  --target-arn ${!SNSTARGET} --region ${!REGION}",
+                        "aws autoscaling complete-lifecycle-action --lifecycle-hook-name ${!LIFECYCLEHOOKNAME} --auto-scaling-group-name ${!ASGNAME} --lifecycle-action-result ${!HOOKRESULT} --instance-id ${!INSTANCEID}  --region ${!REGION}"
                       ]
                     }
                   ]
@@ -436,22 +511,27 @@ Resources:
       Type: AWS::Events::Rule
       Properties:
         EventPattern: !Sub |
-             {
-              "detail-type": "EC2 Instance-terminate Lifecycle Action",
-              "source": "aws.autoscaling",
-              "region": "AWS::Region",
-              "detail": {
-                "LifecycleTransition": "autoscaling:EC2_INSTANCE_TERMINATING"
+              {
+                "detail-type": [ "EC2 Instance-terminate Lifecycle Action" ],
+                "source": [ "aws.autoscaling" ],
+                "detail": {
+                  "LifecycleTransition": [ "autoscaling:EC2_INSTANCE_TERMINATING" ]
+                  }
               }
-            }
         RoleArn: !GetAtt
                  - EventBridgeIAMrole
                  - Arn
                  
         Targets:
-            - Arn:
+            - Arn: !GetAtt
+                   - LambdaFunction
+                   - Arn
               Id: aws-lambda-function
-                    
+              
+            - Arn: !GetAtt
+                   - MyQueue
+                   - Arn
+              Id: sqs-dead-letter-queue
         
     # eventbridge rule Role
     EventBridgeIAMrole:
@@ -473,7 +553,7 @@ Resources:
                   - Effect: Allow
                     Action:
                       - 'lambda:InvokeFunction'
-                    Resource: *
+                    Resource: '*'
                       
     # ec2 role s3 read bucket policy
     EC2Role:
@@ -529,13 +609,37 @@ Resources:
                 Statement:
                   - Effect: Allow
                     Action:
-                      - "logs:CreateLogGroup",
-                      - "logs:CreateLogStream",
-                      - "logs:PutLogEvents"
+                      - 'logs:CreateLogGroup'
+                      - 'logs:CreateLogStream'
+                      - 'logs:PutLogEvents'
                     Resource: '*'
           RoleName: aws-role-lambda-ssm
           Tags: 
             - Key: Name
               Value: aws-role-lambda-ssm
-            
-    
+    # this lambda function will be invoked every time the stack is created
+    # this lambda function will create cloudwwatch resource-policy via call cloudwatch api
+    # using boto3
+    LambdaUsedToCreateCWResourcePolicy:
+      Type: Custom::createcloudwatchpolicy
+      Properties:
+        ServiceToken: !ImportValue createcloudwatchpolicylambda
+        policy: !Sub |
+              {
+                "Statement": [
+                    {
+                        "Action": [
+                            "logs:CreateLogStream",
+                            "logs:PutLogEvents"
+                        ],
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": ["events.amazonaws.com", "delivery.logs.amazonaws.com"]
+                        },
+                        "Resource": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/events/*:*",
+                        "Sid": "TrustEventsToStoreLogEvent"
+                    }
+                ],
+                "Version": "2012-10-17"
+              }
+        policyname: aws-cloudwatch-put-resource-policy

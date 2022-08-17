@@ -69,9 +69,9 @@ def send_command(instance_id):
         timewait += timewait
     try:
         response = ssm.send_command(
-            InstanceIds = [ instance_id ],
-            DocumentName = Document_Name,
-            TimeoutSeconds = 120
+                InstanceIds = [ instance_id ],
+                DocumentName = Document_Name,
+                TimeoutSeconds = 120
             )
         if check_response(response):
             logger.info("Command sent: %s", response)
@@ -91,9 +91,9 @@ def check_command_status(command_id, instance_id):
     while True:
         try:
             response_iterator = ssm.list_command_invocations(
-                CommandId = command_id,
-                InstanceId = instance_id,
-                Details=False
+                    CommandId = command_id,
+                    InstanceId = instance_id,
+                    Details=False
                 )
             if check_response(response_iterator):
                 response_iterator_status = response_iterator['CommandInvocations'][0]['Status']
@@ -117,10 +117,10 @@ def abandon_lifecycle(life_cycle_hook, auto_scaling_group, instance_id):
     asg_client = boto3.client('autoscaling')
     try:
         response = asg_client.complete_lifecycle_action(
-            LifecycleHookName=life_cycle_hook,
-            AutoScalingGroupName=auto_scaling_group,
-            LifecycleActionResult='CONTINUE',
-            InstanceId=instance_id
+                LifecycleHookName=life_cycle_hook,
+                AutoScalingGroupName=auto_scaling_group,
+                LifecycleActionResult='CONTINUE',
+                InstanceId=instance_id
             )
         if check_response(response):
             logger.info("Lifecycle hook abandoned correctly: %s", response)
@@ -133,25 +133,40 @@ def abandon_lifecycle(life_cycle_hook, auto_scaling_group, instance_id):
 
 
 def handler(event, context):
+    print(event)
+    
     try:
+        
         logger.info(json.dumps(event))
         message = event['detail']
+        
         if Hook_key in message and ASG_Key in message:
+            
             life_cycle_hook = message[Hook_key]
             auto_scaling_group = message[ASG_Key]
             instance_id = message[EC2_Key]
+            
             if check_document_status():
+                
                 command_id = send_command(instance_id)
+                
                 if command_id != None:
+                    
                     if check_command_status(command_id, instance_id):
                         logger.info("Lambda executed correctly")
+                        
                     else:
                         abandon_lifecycle(life_cycle_hook, auto_scaling_group, instance_id)
+                        
                 else:
                     abandon_lifecycle(life_cycle_hook, auto_scaling_group, instance_id)
+                    
             else:
                 abandon_lifecycle(life_cycle_hook, auto_scaling_group, instance_id)
+                
         else:
             logger.error("No valid JSON message: %s", json.dumps(message))
+            
+            
     except Exception as e:
         logger.error("Error: %s", str(e))
