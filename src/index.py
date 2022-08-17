@@ -19,6 +19,8 @@ ssm = boto3.client("ssm")
 
 
 def check_response(response):
+    print('check response method')
+    print(response)
     try:
         if response['ResponseMetadata']['HTTPStatusCode'] == 200:
             return True
@@ -31,6 +33,7 @@ def check_response(response):
         
 # list document based on the document name
 def list_document():
+    
     document_filter_parameters = {'key': 'Name', 'value': Document_Name}
     response = ssm.list_documents(
         DocumentFilterList=[ document_filter_parameters ]
@@ -42,17 +45,20 @@ def list_document():
 def check_document_status():
      # If the document already exists, it will not create it.
     try:
+        
         response = list_document()
         if check_response(response):
             logger.info("Documents list: %s", response)
+            
             if any(response['DocumentIdentifiers']):
                 logger.info("Documents exists: %s", response)
                 return True
             else:
                 return False
         else:
-            logger.error("Documents' list error: %s", response)
+            logger.error("Documents list error: %s", response)
             return False
+            
     except Exception as e:
         logger.error("Document error: %s", str(e))
         return None
@@ -60,9 +66,11 @@ def check_document_status():
 # if the document exists then send the command to the target instance with the instance ID        
 def send_command(instance_id):
     # Until the document is not ready, waits in accordance to a backoff mechanism.
+    
+    logger.info("the send_command method")
     while True:
         timewait = 1
-        response = check_document_status()
+        response = list_document()
         if any(response["DocumentIdentifiers"]):
             break
         time.sleep(timewait)
@@ -87,6 +95,8 @@ def send_command(instance_id):
 # this method is the one that will give us an idea wether to abandon the termination of instance or not
 # that is why this method enable us to keep tracking the status of the command
 def check_command_status(command_id, instance_id):
+    
+    logger.info("the check command status")
     timewait = 1
     while True:
         try:
@@ -114,6 +124,7 @@ def check_command_status(command_id, instance_id):
 # this method will be called when the event arrive because all the arguments of the function will
 # be retrieved from the event['detail']
 def abandon_lifecycle(life_cycle_hook, auto_scaling_group, instance_id):
+    logger.info("the abandon_lifecycle")
     asg_client = boto3.client('autoscaling')
     try:
         response = asg_client.complete_lifecycle_action(
@@ -148,10 +159,11 @@ def handler(event, context):
             
             if check_document_status():
                 
+                logger.info("I am within the check_document_status if condition")
                 command_id = send_command(instance_id)
                 
                 if command_id != None:
-                    
+                    logger.info("the command_id condition:%s, %s",instance_id, command_id)
                     if check_command_status(command_id, instance_id):
                         logger.info("Lambda executed correctly")
                         

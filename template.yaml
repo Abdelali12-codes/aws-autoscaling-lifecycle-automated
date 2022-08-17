@@ -58,6 +58,9 @@ Parameters:
     AllowedValues:
       - True
       - False
+  S3ObjectVers:
+     Type: String
+     
 
      
 
@@ -362,6 +365,7 @@ Resources:
           Code: 
               S3Bucket: aws-s3-bucket-lambda-lifecyclehook
               S3Key: application.zip
+              S3ObjectVersion: !Ref S3ObjectVers
 
           Environment: 
             Variables:
@@ -448,8 +452,9 @@ Resources:
                     - MyQueue
                     - QueueName
         Statistic: "Sum"
-        Period: "300"
-        EvaluationPeriods: "1"
+        Period: "300" # in seconds
+        EvaluationPeriods: "5"
+        DatapointsToAlarm: 3
         Threshold: "10"
         ComparisonOperator: "GreaterThanThreshold"
         AlarmActions: 
@@ -505,7 +510,23 @@ Resources:
               }
             }
 
-            
+    # eventbridge rule for cloudwatch alarm
+    
+    AmazonCloudWatchAlarmEventRule:
+      Type: AWS::Events::Rule
+      Properties:
+         EventPattern: !Sub |
+         
+                {
+                  "detail-type": [ ""CloudWatch Alarm State Change"" ],
+                  "source": [ "aws.cloudwatch" ],
+                  "detail": {
+                     "state": {
+                       "value": [ "ALARM" ]
+                     }
+                    }
+                }
+         
     # eventbridge rule
     AmazonCloudWatchEventRule:
       Type: AWS::Events::Rule
@@ -603,7 +624,7 @@ Resources:
           ManagedPolicyArns: 
             - arn:aws:iam::aws:policy/AmazonSSMFullAccess
           Policies: 
-            - PolicyName: aws-lambda-cloudwatch-policy
+            - PolicyName: aws-lambda-cloudwatch-autoscaling-policy
               PolicyDocument:
                 Version: "2012-10-17"
                 Statement:
@@ -612,6 +633,10 @@ Resources:
                       - 'logs:CreateLogGroup'
                       - 'logs:CreateLogStream'
                       - 'logs:PutLogEvents'
+                    Resource: '*'
+                  - Effect: Allow
+                    Action:
+                      - 'autoscaling:*'
                     Resource: '*'
           RoleName: aws-role-lambda-ssm
           Tags: 
