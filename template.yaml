@@ -127,7 +127,7 @@ Resources:
                   content: !Sub |
                     [cfn-auto-reloader-hook]
                     triggers=post.update
-                    path=Resources.WebServerHost.Metadata.AWS::CloudFormation::Init
+                    path=Resources.myLaunchTemplate.Metadata.AWS::CloudFormation::Init
                     action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource WebServerHost --region ${AWS::Region}
                   mode: "000400"
                   owner: "root"
